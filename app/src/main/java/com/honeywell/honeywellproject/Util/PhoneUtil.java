@@ -8,8 +8,15 @@ import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
+
+import com.hjq.permissions.XXPermissions;
+
+import java.security.Permission;
+
+import ezy.assist.compat.SettingsCompat;
 
 /**
  * Created by QHT on 2017-02-27.
@@ -17,7 +24,7 @@ import android.view.inputmethod.InputMethodManager;
 
 public  class PhoneUtil {
 
-
+    private static final int REQUEST_CODE_WRITE_SETTINGS = 1;
         /**
          * 获取屏幕高度
          */
@@ -59,28 +66,31 @@ public  class PhoneUtil {
     public static void ConvertScreen(boolean isSelect,Activity context) {
         if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (!Settings.System.canWrite(context)) {
-                Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
-                intent.setData(Uri.parse("package:" + context.getPackageName()));
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                context.startActivity(intent);
+                SettingsCompat.manageWriteSettings(context);
+//                Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
+//                intent.setData(Uri.parse("package:" + context.getPackageName()));
+//                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+//                context.startActivity(intent);
                 Settings.System.putInt(context.getContentResolver(),Settings.System.ACCELEROMETER_ROTATION,1);
             } else {
+                //开启屏幕自动旋转
                 Settings.System.putInt(context.getContentResolver(),Settings.System.ACCELEROMETER_ROTATION,1);
             }
-        }
-        else {
+        } else {
             Settings.System.putInt(context.getContentResolver(),Settings.System.ACCELEROMETER_ROTATION,1);
         }
         if (isSelect) {
-            if (context.getRequestedOrientation() == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-                ToastUtil.showToastShort("错误：无法改变屏幕方向。");
-            } else {
+//            if (context.getRequestedOrientation() == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+//                ToastUtil.showToastShort("错误：无法改变屏幕方向。");
+//            } else {
                 if (context.getRequestedOrientation() == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
                     context.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT);
                 }
             }
-        } else {
+            else {
             context.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         }
+
     }
+
 }

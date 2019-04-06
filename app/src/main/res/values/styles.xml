@@ -30,6 +30,11 @@
         <item name="android:layout_marginRight">1dip</item>
     </style>
 
+    <style name="MyEditText" parent="Theme.AppCompat.Light">
+        <item name="colorControlActivated">@color/gray</item>
+    </style>
+
+
     <!--&lt;!&ndash;自定义dialog背景全透明无边框theme &ndash;&gt;-->
     <!--<style name="MyDialog" parent="android:style/Theme.Dialog">-->
         <!--&lt;!&ndash;背景颜色及和透明程度&ndash;&gt;-->

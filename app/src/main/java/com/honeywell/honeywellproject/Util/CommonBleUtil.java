@@ -7,12 +7,15 @@ import com.clj.fastble.data.BleDevice;
 import com.clj.fastble.exception.BleException;
 import com.clj.fastble.utils.HexUtil;
 
+import java.util.ArrayList;
 import java.util.UUID;
 
 /**
  * @author QHT
  */
 public class CommonBleUtil {
+    //存放命令的集合
+    ArrayList<String> comdList = new ArrayList<String>();
 
     OnResultListtener resultListener;
     public interface OnResultListtener{
@@ -36,7 +39,8 @@ public class CommonBleUtil {
         this.resultListener=resultListener;
     }
 
-    public  void  writeDevice(BleDevice bleDevice, String datas){
+    public synchronized   void  writeDevice(BleDevice bleDevice, String datas){
+
         BleManager.getInstance().write(bleDevice,ConstantUtil.SERVER_UUID, ConstantUtil.Write_UUID, HexUtil.hexStringToBytes(datas), new BleWriteCallback() {
             @Override
             public void onWriteSuccess() {

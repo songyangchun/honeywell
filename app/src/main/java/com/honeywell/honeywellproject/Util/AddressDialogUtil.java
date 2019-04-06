@@ -8,6 +8,7 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
 
+import com.honeywell.honeywellproject.BleTaskModule.SingleAddress.SingleFreeAddressing.SingleFreeAddressActivity;
 import com.honeywell.honeywellproject.R;
 
 public class AddressDialogUtil {
@@ -33,8 +34,6 @@ public class AddressDialogUtil {
             final TextView newaddress;
             final EditText et_newaddress;
             final EditText editText = new EditText(context);
-
-
             confirm = (TextView) view.findViewById(R.id.dialog_btn_comfirm);
             content = (TextView) view.findViewById(R.id.dialog_txt_content);
             cancel = (TextView) view.findViewById(R.id.dialog_btn_cancel);
@@ -46,9 +45,9 @@ public class AddressDialogUtil {
             et_newaddress = (EditText) view.findViewById(R.id.et_newaddress);
             initaddress.setText(position);
             content.setText(message);
-
             final Dialog dialog = new Dialog(context);
             dialog.setContentView(view);
+
             dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
             confirm.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -70,10 +69,9 @@ public class AddressDialogUtil {
             int displayHeight = dm.heightPixels;
             android.view.WindowManager.LayoutParams p = dialog.getWindow().getAttributes();  //获取对话框当前的参数值
             p.width = (int) (displayWidth * 0.9);    //宽度设置为屏幕的0.5
-            p.height = (int) (displayHeight * 0.5);    //宽度设置为屏幕的0.5
+            p.height = (int) (displayHeight * 0.45);    //高度设置为屏幕的0.5
             dialog.setCanceledOnTouchOutside(false);// 设置点击屏幕Dialog不消失
             dialog.getWindow().setAttributes(p);     //设置生效
-
 
         }
 

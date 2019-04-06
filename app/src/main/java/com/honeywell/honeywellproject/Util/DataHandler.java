@@ -616,12 +616,17 @@ public class DataHandler {
         String BatteryHigh = datas[6];
         //低
         String BatteryLow = datas[7];
+        String messagetype = datas[3];
         double result = 0;
         try {
-            result = Integer.parseInt(BatteryHigh, 16) + Integer.parseInt(BatteryLow, 16) * 0.01;
+            //需不需要将高低电压从16进制转换为10进制？
+//           result = Integer.parseInt(BatteryHigh, 16) + Integer.parseInt(BatteryLow, 16) * 0.01;
+            if ("81".equals(messagetype)) {
+                result = Integer.parseInt(BatteryHigh, 16) + Integer.parseInt(BatteryLow, 16) * 0.01;
+            }
         } catch (NumberFormatException e) {
             result = 0.0;
-            ToastUtil.showToastShort("下位机电量格式错误：" + BatteryHigh + BatteryLow);
+//            ToastUtil.showToastShort("下位机电量格式错误：" + BatteryHigh + BatteryLow);
         }
         return result;
     }

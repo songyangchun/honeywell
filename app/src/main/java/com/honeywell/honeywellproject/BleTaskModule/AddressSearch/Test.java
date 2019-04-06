@@ -4,7 +4,6 @@ import android.Manifest;
 import android.app.Dialog;
 import android.app.ProgressDialog;
 import android.bluetooth.BluetoothGatt;
-import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
@@ -22,7 +21,6 @@ import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.widget.ToggleButton;
 
 import com.baidu.tts.chainofresponsibility.logger.LoggerProxy;
 import com.baidu.tts.client.SpeechSynthesizerListener;
@@ -53,6 +51,7 @@ import com.honeywell.honeywellproject.Util.LogUtil;
 import com.honeywell.honeywellproject.Util.PhoneUtil;
 import com.honeywell.honeywellproject.Util.ResourceUtil;
 import com.honeywell.honeywellproject.Util.SharePreferenceUtil;
+import com.honeywell.honeywellproject.Util.SystemUtil;
 import com.honeywell.honeywellproject.Util.ToastUtil;
 import com.honeywell.honeywellproject.WidgeView.indicatordialog.IndicatorBuilder;
 import com.honeywell.honeywellproject.WidgeView.indicatordialog.IndicatorDialog;
@@ -60,7 +59,6 @@ import com.honeywell.honeywellproject.WidgeView.indicatordialog.IndicatorDialog;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Timer;
 
 import butterknife.BindView;
 import butterknife.OnClick;
@@ -68,6 +66,7 @@ import jxl.common.Logger;
 
 import static com.honeywell.honeywellproject.Util.DataHandler.Alone2Hex;
 import static com.honeywell.honeywellproject.Util.DataHandler.CheckVB;
+import static java.lang.Integer.parseInt;
 
 
 public class Test extends ToolBarActivity {
@@ -79,21 +78,20 @@ public class Test extends ToolBarActivity {
     private IndicatorDialog dialog;
     private BleDevice bleDevice;
     private CommonBleUtil commonBleUtil;
-    private Thread LoopCardBatteryThread;
     private boolean isAppExit;
     protected MySyntherizer synthesizer;
     private RecyclerView MyRecyclerView;
     private ItemAdapter mMyAdapter;
     private List<Integer> intInfos = new ArrayList<Integer>();
-    public static String DLIP_ADDR_NEW = "";
+    private List<Integer> intInfos1 = new ArrayList<Integer>();
     String protopolType;
-    private Timer timer;
+    private   Runnable runnable;
+    private   Runnable runnable1;
     /**
      * 编址类型，CLIP 10X(101,102)\DLIP 20X(201,202)\FlashScan 30X
      * 且当ADDRESSTYPE==0 是代表没有任何读写操作，空闲状态
      */
     private static int ADDRESSTYPE = 0;
-    private int currentPosition = 0;
     /**
      * 写电池命令
      */
@@ -106,16 +104,19 @@ public class Test extends ToolBarActivity {
     /**
      * CLIP协议轮询状态码
      */
-    private static final int CIP_POLL = 1000;
     private static final int addressNoExist = 1001;
     private static final int addressExist = 1002;
     private static final int addressRepeat = 1003;
-    private static final int addressNow = 1004;
-    private static final int ADAPTER_FRESH=9000;
-    private static final int DLIP_SCAN_FINISH=10001;
-    private static final int DLIP_SCAN_START=10000;
-    private static final int DLIP_WRTIE_MSG=10002;
     private static final int over = 9999;
+
+    private static final int repetscan= 1004;
+
+    /*
+     * DLIP协议轮询状态码
+     * */
+    private static final int dlip_over = 10001;
+    private static final int dlipfinsh = 10002;
+
 
     /**
      * 重置
@@ -136,11 +137,12 @@ public class Test extends ToolBarActivity {
     public int repeataddressnum = 0;//重码数量显示
 
     public int lampnum = 0;
+    public int groupnum = 0;
     public int index = 0;
     //查询速度
     public int speed = 50;
-    static boolean isfirstread = true;//第一次读到数据
-    static boolean first = true;
+
+    boolean isfirst = false;
 
     @BindView(R.id.iv_singleaddress_blestate2)
     ImageView ivSingleaddressBlestate2;
@@ -149,13 +151,10 @@ public class Test extends ToolBarActivity {
     @BindView(R.id.iv_singleaddress_blebattery2)
     ImageView ivSingleaddressBlebattery2;
     //扫描按钮
-    private ToggleButton toggleButton = null;
+
     private Button button1 = null;
     private TextView onnum = null;
     private TextView renum = null;
-    private Context mContext;
-    private String[] datas;
-    private DLIPWriteThread dlipWriteThread = null;//write command thread
 
 
     @Override
@@ -180,6 +179,7 @@ public class Test extends ToolBarActivity {
         for (int i = 0; i < 240; i++) {
             intInfos.add(3);
         }
+//        getBetry();
         initCommonBleUtil();
         getToolbarTitle().setText("地址搜索");
         getSubTitle().setVisibility(View.INVISIBLE);
@@ -196,45 +196,29 @@ public class Test extends ToolBarActivity {
             @Override
             public void onItemClick(View view, final int newposition) {
                 if (intInfos.get(newposition) == 1 && protopolType.equals("DLIP")) {
-                    showTwoButton("注意：新地址必须为1-239内空地址位，否则修改失败", "原地址：      " + newposition, newposition);
+                    showTwoButton("注意：新地址必须为1-239内空地址位，否则修改失败", "原地址：             " + newposition, newposition);
                 }
             }
         });
         ///////////////////////////////////////////////////////////////////////////////////////////
-        dlipWriteThread=new DLIPWriteThread(dlipHandler,commonBleUtil,DLIP_WRTIE_MSG);
         //点击开始扫描
         button1 = (Button) findViewById(R.id.btn_scan);
         button1.setTag(false);
+
         button1.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                //------------改用字符匹配判断------------
 
-//
                 if (button1.getText().toString().equals("扫描")) {
                     intInfos();
                     reset();
                     //开始轮询
-                    dlipWriteThread.getQueueBleData().clear();
                     mMyAdapter.notifyDataSetChanged();
                     button1.setText("停止");//按钮上变为停止
                     button1.setTag(true);
-                    isfirstread = true;
-                    protopolType = SharePreferenceUtil.getStringSP("ProtopolType", "");
-
-                    if(protopolType.equals("DLIP")){
-                        try {
-                            initInfos1();
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    }else if(protopolType.equals("CLIP")){
-                        initWrite();
-                    }
-
-                    if(!dlipWriteThread.isAlive()){
-                        dlipWriteThread.start();
-                    }
+                    protopolType = SharePreferenceUtil.getStringSP("ProtopolType", "CLIP");
+//                    DlipcomdSend();
+                    initWrite();
                     ////////////定时下滑效果
                 } else {
                     button1.setText("扫描");//按钮上变为扫描
@@ -244,12 +228,15 @@ public class Test extends ToolBarActivity {
                     handler.removeCallbacksAndMessages(null);
                     button1.setTag(false);
                     mMyAdapter.notifyDataSetChanged();
-                    dlipWriteThread.getQueueBleData().clear();
+                    isfirst=true;
                 }
+
             }
+
         });
 
     }
+
     public void showTwoButton(String tips, String position, final int newposition) {
         AddressDialogUtil.showTwoButtonDialog(this, tips, position, new AddressDialogUtil.OnTipsClick() {
 
@@ -258,11 +245,10 @@ public class Test extends ToolBarActivity {
                 //DLIP,第index条命令
                 ADDRESSTYPE = type;
                 if (index == 1) {
-                    DataHandler.DLIP_ADDR_NEW= newadd;
+                    DataHandler.DLIP_ADDR_NEW = newadd;
                     command = DataHandler.DLIP_WRITE(String.valueOf(newposition), newadd, 1);
                     commonBleUtil.writeDevice(bleDevice, command);
-                    LogUtil.e(command);
-                    ToastUtil.showToastShort("地址编写成功");
+                    ToastUtil.showToastShort("地址修改成功");
 
                 }
             }
@@ -286,12 +272,6 @@ public class Test extends ToolBarActivity {
                         return;
                     }
                 }
-//                for (int i = 0; i < address.size(); i++) {
-//                    if (address.get(i) == Integer.parseInt(newadd)) {
-//                        ToastUtil.showToastShort("请重新输入");
-//                        return;
-//                    }
-//                }
 
                 commonBleUtil.notifyDevice(bleDevice);
                 try {
@@ -321,11 +301,16 @@ public class Test extends ToolBarActivity {
     //重置变量
     private void reset() {
         addrstr = 0;
+        //address忘记清空了，导致每点一次扫描，在线地址都在累加
+        address.clear();
+        comdList.clear();
+        groupnum = 0;
         lampnum = 0;
         onaddressnum = 0;
         repeataddressnum = 0;
-        onnum.setText(onaddressnum + "");
+        onnum.setText(0 + "");
         renum.setText(repeataddressnum + "");
+
     }
 
     //数组赋值----3代表蓝色
@@ -340,30 +325,6 @@ public class Test extends ToolBarActivity {
 
 
 
-
-    //数组赋值----0代表灰色
-    private void initInfos1() throws InterruptedException {
-        //init intInfos
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                for (int i = 0;i < 240; i++){
-                    if (intInfos.get(i) != 0) {
-                        intInfos.set(i, 0);
-                    }
-                    if (i % 20 == 0) {
-                        try {
-                            Thread.sleep(300);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                        dlipHandler.sendEmptyMessage(ADAPTER_FRESH);
-                    }
-                }
-                dlipHandler.sendEmptyMessage(DLIP_SCAN_START);
-            }
-        }).start();
-    }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
@@ -492,7 +453,8 @@ public class Test extends ToolBarActivity {
         if (BleManager.getInstance().isConnected(bleDevice)) {
             ivSingleaddressBlestate2.setImageResource(R.drawable.connect_50);
             OpenNotify(true);
-            getLoopCardBatteryThread();
+            BatteryThread();
+//            getLoopCardBatteryThread();
             BleManager.getInstance().readRssi(bleDevice, new BleRssiCallback() {
                 @Override
                 public void onRssiFailure(BleException exception) {
@@ -575,7 +537,8 @@ public class Test extends ToolBarActivity {
                             @Override
                             public void run() {
                                 OpenNotify(true);
-                                getLoopCardBatteryThread();
+                                BatteryThread();
+//                                getLoopCardBatteryThread();
                                 ivSingleaddressBlestate2.setImageResource(R.drawable.connect_50);
                                 BleManager.getInstance().readRssi(bleDevice, new BleRssiCallback() {
                                     @Override
@@ -600,9 +563,9 @@ public class Test extends ToolBarActivity {
                             @Override
                             public void run() {
                                 BleManager.getInstance().cancelScan();
-                                ivSingleaddressBlerssi2.setImageResource(R.drawable.xinhao_wu);
+//                                ivSingleaddressBlerssi2.setImageResource(R.drawable.xinhao_wu);
                                 ivSingleaddressBlestate2.setImageResource(R.drawable.unconnect_50);
-                                ivSingleaddressBlebattery2.setImageResource(R.drawable.battery_null);
+//                                ivSingleaddressBlebattery2.setImageResource(R.drawable.battery_null);
                             }
                         });
                     }
@@ -627,49 +590,59 @@ public class Test extends ToolBarActivity {
         }
     }
 
-    /**
-     * 获取电量线程  5min一次
-     */
-    private boolean getLoopCarded = false;
 
-    private void getLoopCardBatteryThread() {
-        LoopCardBatteryThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                while (!isAppExit) {
-                    //ADDRESSTYPE ==0 空闲状态，没有写或者读命令
-                    try {
-                        //因为下位机蓝牙连接后需要1-2S的延迟，所以第一次电池命令需要延迟2S左右
-                        Thread.sleep(2 * 1000);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                    if (ADDRESSTYPE == 0) {
-                        if (!getLoopCarded) {
-                            handler.sendEmptyMessage(LOOPCARDBATTERY);
-                            getLoopCarded = true;
-                            try {
-                                //休眠5min，然后继续下一次读电池
-                                Thread.sleep(5 * 60 * 1000);
-                                getLoopCarded = false;
-                            } catch (InterruptedException e) {
-                                e.printStackTrace();
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        LoopCardBatteryThread.start();
+    /*
+     * 给设备发送电池电量命令
+     * */
+    public void getBattery() {
+//        SystemUtil.vibrate(Test.this, 100); //震动
+        try {
+            Thread.sleep(80);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        //获取回路卡电池电量
+        commonBleUtil.writeDevice(bleDevice, LOOPCARDBattery_WRITE());
     }
 
+
+
+    /*
+     * 每隔两分钟发送一次
+     * */
+    private void BatteryThread(){
+        runnable = new Runnable(){
+            @Override
+            public void run(){
+                getBattery();
+                //延迟 2 mins执行
+                handler.postDelayed(this,  4*60*1000);
+            }
+//            }
+        };
+        handler.postDelayed(runnable,1000);
+    }
+
+    private void DlipcomdSend(){
+        runnable1 = new Runnable(){
+            @Override
+            public void run(){
+                commonBleUtil.writeDevice(bleDevice, groupQuery(groupnum));
+                //延迟 2 mins执行
+                handler.postDelayed(this,  500);
+            }
+//            }
+        };
+        handler.post(runnable1);
+    }
+
+
     /**
-     * 电池电量最大9V，显示的时候可以分成4个档位；
-     * 0.00=<电压<7.20v，提醒没电，4格全空；
-     * 7.20=<电压<7.65, 1格电；
-     * 7.65=<电压<8.10, 2格电；
-     * 8.10=<电压<8.55, 3格电；
-     * 8.55=<电压       4格电；
+     * 电池电量最大5.9V，显示的时候可以分成4个档位；
+     * 0.00=<电压<5.0v，提醒没电，4格全空；
+     * 5.0=<电压<5.4, 1格电；
+     * 5.4=<电压<5.9, 2格电；
+     * 5.9=<电压       3格电；
      *
      * @param batteryValue 为0.00是代表获取失败
      */
@@ -677,24 +650,18 @@ public class Test extends ToolBarActivity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                if (batteryValue < 7.2) {
+                if (batteryValue < 5.0) {
                     ivSingleaddressBlebattery2.setImageDrawable(ResourceUtil.getDrawable(R.drawable.battery_null));
-                } else if (7.2 <= batteryValue && batteryValue < 7.65) {
+                } else if (5.0 <= batteryValue && batteryValue < 5.3) {
                     ivSingleaddressBlebattery2.setImageDrawable(ResourceUtil.getDrawable(R.drawable.battery_1));
-                } else if (7.65 <= batteryValue && batteryValue < 8.10) {
+                } else if (5.3 <= batteryValue && batteryValue < 5.6) {
                     ivSingleaddressBlebattery2.setImageDrawable(ResourceUtil.getDrawable(R.drawable.battery_2));
-                } else if (8.10 <= batteryValue && batteryValue < 8.55) {
+                }  else if (5.6 <= batteryValue && batteryValue < 5.9) {
                     ivSingleaddressBlebattery2.setImageDrawable(ResourceUtil.getDrawable(R.drawable.battery_3));
-                } else if (8.55 <= batteryValue && batteryValue <= 12.00) {
+                } else if (5.9 <= batteryValue) {
                     ivSingleaddressBlebattery2.setImageDrawable(ResourceUtil.getDrawable(R.drawable.battery_4));
                 }
-                if (batteryValue < 7.8) {
-                    speak("电池电量不足", false);
-                }
-                if (batteryValue < 7.3) {
-                    speak("请更换电池", false);
-                }
-                ADDRESSTYPE = 0;
+
             }
         });
     }
@@ -730,23 +697,20 @@ public class Test extends ToolBarActivity {
 
     @Override
     protected void onDestroy() {
-        try {
-            ADDRESSTYPE = 0;
-            if (synthesizer != null) {
-                synthesizer.release();
-            }
-            if (dlipWriteThread != null) {
-                dlipWriteThread.interrupt();
-            }
-            handler.removeCallbacksAndMessages(null);
-            isAppExit = true;
-            LoopCardBatteryThread = null;
-        } catch (Exception e) {
-
+        ADDRESSTYPE = 0;
+        if (synthesizer != null) {
+            synthesizer.release();
+        }
+        handler.removeCallbacksAndMessages(null);
+        handler.removeCallbacks(runnable);
+        handler.removeCallbacks(runnable1);
+        isAppExit = true;
+        if (progressdialog != null) {
+            progressdialog.dismiss();
+            progressdialog = null;
         }
         System.gc();
         super.onDestroy();
-
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -769,15 +733,20 @@ public class Test extends ToolBarActivity {
         }
     }
 
+
+
+
     /**
      * 发送的每一条命令都在这里实时监听
      */
-    private void initCommonBleUtil() {
+    private  void initCommonBleUtil() {
         commonBleUtil = new CommonBleUtil();
         commonBleUtil.setResultListener(new CommonBleUtil.OnResultListtener() {
 
             @Override
             public void writeOnResult(boolean result) {
+
+                LogUtil.e("Write--->" + result);
             }
 
             @Override
@@ -787,13 +756,29 @@ public class Test extends ToolBarActivity {
 
             @Override
             public void notifyOnSuccess(String values, String UUID) {
+                String[] datas = new String[values.length() / 2];
+
+                //数据长度不固定，注意处理0x55的情况
+                for (int i = 0, j = 0; i < values.length(); i += 2, j++) {
+                    datas[j] = values.substring(i, i + 2);
+                    if (j != 0 && "00".equals(datas[j]) && "55".equals(datas[j - 1])) {
+                        //出现0x55 0x00的情况则干掉00保留55,这样能保证数据长度不变，便于取值
+                        j--;
+                    }
+                }
+                //获取电量命令信息类型位，用信息类型判断发的是哪条命令
+                String malfunction = datas[3];
                 boolean result;
                 int poll;
-                int dlippoll =0;
-                //speed=(SharePreferenceUtil.getIntSP("progressData"));
-                if (ADDRESSTYPE == 401) {
+                if ("81".equals(malfunction)) {
+                    //获取设备电量
+//                    ToastUtil.showToastShort("接收电池电量:" + DataHandler.LOOPCARDBattery_READ(values));
                     setBatteryIcon(DataHandler.LOOPCARDBattery_READ(values));
-                } else if (ADDRESSTYPE == 501) {
+                    if (ADDRESSTYPE==1000 && lampnum<200){
+                        handler.sendEmptyMessageDelayed(repetscan, speed);
+                    }
+                }
+               if (ADDRESSTYPE == 501) {
                     //写序列号成功
                     result = DataHandler.Series_READ(values);
                     if (result) {
@@ -801,51 +786,37 @@ public class Test extends ToolBarActivity {
                     } else {
                         handler.sendEmptyMessage(messageError);
                     }
-                }
-                //轮询读
-                else if (ADDRESSTYPE == 1000) {
-                    poll = CLIP_READLOOP(values);
-                    lampnum++;
-                    speed = Integer.parseInt(SharePreferenceUtil.getStringSP("progressData", "50"));
-                    if (poll == green) {
-                        handler.sendEmptyMessageDelayed(addressExist, speed);
-//                        handler.sendEmptyMessage(addressExist);
-                    } else if (poll == gray) {
-                        handler.sendEmptyMessageDelayed(addressNoExist, speed);
-                    } else if (poll == yellow) {
-                        handler.sendEmptyMessageDelayed(addressRepeat, speed);
-                    }
-                    if (lampnum == 200) {
+                } else if (ADDRESSTYPE == 1000 && "80".equals(malfunction)) {
+                    //clip轮询读
+                        speed = Integer.parseInt(SharePreferenceUtil.getStringSP("progressData", "50"));
+                        poll = CLIP_READLOOP(values);
+                        lampnum++;
+                        if (poll == green) {
+                            handler.sendEmptyMessageDelayed(addressExist, speed);
+                        } else if (poll == gray) {
+                            handler.sendEmptyMessageDelayed(addressNoExist, speed);
+                        } else if (poll == yellow) {
+                            handler.sendEmptyMessageDelayed(addressRepeat, speed);
+                        }
+                    if (lampnum == 200 ) {
                         handler.sendEmptyMessage(over);
                     }
-                } else if (ADDRESSTYPE == 2000) {
-                    dlipWriteThread.getQueueBleData().element().setReadData(values);
-                    dlipWriteThread.getQueueBleData().element().setReadFinish(true);
-                    if (isfirstread == true) {
-                        firstReadDataProcess(values);
-                    } else {
-                       dlippoll= DLIP_READGroupQuery(values);
-                    }
-                    lampnum++;
-                    speed = Integer.parseInt(SharePreferenceUtil.getStringSP("progressData", "50"));
-                    if (dlippoll == green) {
-                        //dlipHandler.sendEmptyMessageDelayed(addressExist, speed);
-//                        handler.sendEmptyMessage(addressExist);
-                    } else if (dlippoll == gray) {
-                        //dlipHandler.sendEmptyMessageDelayed(addressNoExist, speed);
-                    } else if (dlippoll == yellow) {
-                        //handler.sendEmptyMessageDelayed(addressRepeat, speed);
-                    }
-                    if (lampnum == 200) {
-                       // handler.sendEmptyMessage(over);
+
+                } else if (ADDRESSTYPE == 2000 && "85".equals(malfunction)) {
+                    //dlip轮询读
+                        DLIP_READGroupQuery(values);
+                        groupnum++;
+                    if (groupnum == 14) {
+                        handler.sendEmptyMessageDelayed(dlip_over, 300);
+                        handler.sendEmptyMessageDelayed(dlipfinsh,400);
                     }
 
 
                 } else if (ADDRESSTYPE == 201) {
+                    //dlip修改地址
                     DLIP_WRITE(values);
-                    LogUtil.e(values);
-
                 }
+//            }
             }
         });
     }
@@ -856,43 +827,37 @@ public class Test extends ToolBarActivity {
      */
     private void initWrite() {
         try {
-
             if (protopolType.equals("CLIP")) {
-//                ToastUtil.showToastShort("点击了CLIP");
                 ADDRESSTYPE = 1000;
-                Writing("CLIP", ADDRESSTYPE, 1);
+                Writing("CLIP", ADDRESSTYPE);
             } else if (protopolType.equals("DLIP")) {
-//                ToastUtil.showToastShort("点击了DLIP");
-                ADDRESSTYPE=2000;
-
-                Writing("DLIP", 2000, 0);
-                //handler1.postDelayed(runnable, 1000);
-//                button1.setText("扫描");
+                ADDRESSTYPE = 2000;
+                DlipcomdSend();
+//                Writing("DLIP", ADDRESSTYPE);
             }
         } catch (Exception e) {
             ToastUtil.showToastLong(e.getMessage());
         }
     }
 
-    public void Writing(String protocolType, int type, int index) {
+    public void Writing(String protocolType, int type) {
         try {
             Thread.sleep(80);
             if (protopolType.equals("CLIP")) {
                 commonBleUtil.writeDevice(bleDevice, CLIP_WRITE(lampnum));
             }
             if (protopolType.equals("DLIP")) {
-                String command = DataHandler.groupQuery("0F");
-                BleData bqd = new BleData();
-                bqd.setWriteData(command);
-                dlipWriteThread.getQueueBleData().add(bqd);
-                commonBleUtil.writeDevice(bleDevice, command);
+                commonBleUtil.writeDevice(bleDevice, groupQuery(groupnum));
+
             }
         } catch (InterruptedException e) {
             ToastUtil.showToastLong(e.getMessage());
         }
     }
 
-
+    /*
+     * clip轮询读发送给设备的命令
+     * */
     public String CLIP_WRITE(int addr) {
         String Y = null;
         String addr2 = null;
@@ -927,7 +892,7 @@ public class Test extends ToolBarActivity {
     }
 
     /**
-     * CLIP 连续编址的读
+     * CLIP 连续编址的读设备返回的命令
      */
     public static int CLIP_READLOOP(String values) {
         String[] datas = new String[values.length() / 2];
@@ -939,90 +904,64 @@ public class Test extends ToolBarActivity {
                 j--;
             }
         }
+        //标识位
+        String massagetype = datas[3];
         //故障位
         String malfunction = datas[4];
         String pW1 = datas[5];
         //暂时修改一下，5位有一个不为00就行
         int H = Integer.parseInt(pW1, 16);
-        if ((H * 256) > 100 && "00".equals(malfunction)) {
+        if ((H * 256) > 100 && "00".equals(malfunction)&& "80".equals(massagetype) ) {
             return green;
-        } else if ("01".equals(malfunction)) {
+        } else if ("00".equals(massagetype)) {
             return yellow;
         }
         return gray;
     }
 
+
+    //存放命令的集合
+    ArrayList<String> comdList = new ArrayList<String>();
     /**
-     * get group writting command by group num
+     * 获取回路卡电池电压
+     * */
+    public String LOOPCARDBattery_WRITE(){
+        String[] strs;
+        strs=new String[]{"55","AA","01","81","33","01","B2","55","5A"};
+        //检验位
+        strs[6]=CheckVB(2,5,strs);
+        StringBuffer sb = new StringBuffer();
+        for(int k = 0; k < strs.length; k++){
+            sb. append(strs[k]);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * dlip按组轮询读，给设备发送的命令
      *
      * @param groupnum int
      * @return Command  String
      */
     public String groupQuery(int groupnum) {
-        StringBuffer sb = new StringBuffer();
-        String[] strs = new String[10];
-        switch (groupnum) {
-            case 0:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "00", "F5", "F5", "7F", "55", "5A"};
-                break;
-            case 1:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "01", "F5", "F5", "7E", "55", "5A"};
-                break;
-            case 2:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "02", "F5", "F5", "7D", "55", "5A"};
-                break;
-            case 3:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "03", "F5", "F5", "7C", "55", "5A"};
-                break;
-            case 4:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "04", "F5", "F5", "7B", "55", "5A"};
-                break;
-            case 5:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "05", "F5", "F5", "7A", "55", "5A"};
-                break;
-            case 6:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "06", "F5", "F5", "79", "55", "5A"};
-                break;
-            case 7:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "07", "F5", "F5", "78", "55", "5A"};
-                break;
-            case 8:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "08", "F5", "F5", "77", "55", "5A"};
-                break;
-            case 9:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "09", "F5", "F5", "76", "55", "5A"};
-                break;
-            case 10:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "0A", "F5", "F5", "75", "55", "5A"};
-                break;
-            case 11:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "0B", "F5", "F5", "74", "55", "5A"};
-                break;
-            case 12:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "0C", "F5", "F5", "73", "55", "5A"};
-                break;
-            case 13:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "0D", "F5", "F5", "72", "55", "5A"};
-                break;
-            case 14:
-                strs = new String[]{"55", "AA", "01", "85", "FB", "0E", "F5", "F5", "71", "55", "5A"};
-                break;
-        }
+        String[] strs = new String[11];
+        String addr3 = null;
+        addr3 = Alone2Hex(Integer.toHexString(groupnum));
+        strs = new String[]{"55", "AA", "01", "85", "FB", addr3, "F5", "F5", strs[8], "55", "5A"};
+        strs[8] = CheckVB(2, 7, strs);
+        StringBuffer sb1 = new StringBuffer();
         for (int k = 0; k < strs.length; k++) {
-            sb.append(strs[k]);
+            sb1.append(strs[k]);
             //再判断里面是否含有0x55，若有需要后面补00
             if (k >= 2 && k <= 8) {
                 if ("55".equals(strs[k])) {
-                    sb.append("00");
+                    sb1.append("00");
                 }
             }
         }
-        return sb.toString();
+        return sb1.toString();
     }
 
-    static int sum = 0;  //sum为组号的个数
-    static int result = 0;  //result的值是组号
-    static int color = 0;  //三种状态颜色
     static ArrayList<Integer> address = new ArrayList<Integer>(); // 放地址的list
 
     /**
@@ -1051,31 +990,9 @@ public class Test extends ToolBarActivity {
      * @param values String
      * @version 2019-01-11
      */
-    public void firstReadDataProcess(String values) {
-        String[] datas = computeReadDatas(values);
-        //故障位
-        if (datas.length < 10) {
-            return;
-        }
-        String DATAH = datas[7];
-        String DATAL = datas[8];
-        String BinaryH = ELUtil.hex2binary(DATAH);
-        String BinaryL = ELUtil.hex2binary(DATAL);
-        String BinaryALL = BinaryH + BinaryL;
-        for (int i = BinaryALL.length() - 1; i >= 0; i--) {
-            if (BinaryALL.charAt(i) == '1') {
-                sum++;
-                result = 15 - i;
-                BleData bd = new BleData();
-                bd.setWriteData(groupQuery(result));
-                dlipWriteThread.getQueueBleData().add(bd);
-            }
-        }
-        isfirstread = false;
-    }
-
     /**
      * write from DLIP
+     * dlip修改地址
      */
 
     public void DLIP_WRITE(String values) {
@@ -1084,39 +1001,38 @@ public class Test extends ToolBarActivity {
         if (datas.length < 10) {
             return;
         }
-
+        String malfunction = datas[3];
         String DATAL = datas[8];
         String DATAH = datas[5];
         Integer b = Integer.parseInt(DATAH, 16);
         Integer c = Integer.parseInt(DATAL, 16);
         address.add(c);
-        if (!b.equals("") && !c.equals("")) {
+        if (!b.equals("") && !c.equals("") && "85".equals(malfunction)) {
             intInfos.set(b, 0);
             mMyAdapter.notifyItemChanged(b);
             intInfos.set(c, 1);
             mMyAdapter.notifyItemChanged(c);
         }
-
         LogUtil.e(values);
     }
 
     /**
-     * not first read form DLIP
+     * dlip读地址设备返回的命令
      *
      * @param values String
      * @return int
      * @version 2019-01-11
      * @author mayiengly
      */
-    public int DLIP_READGroupQuery(String values) {
-        String[] datas = computeReadDatas(values);
 
-//        LogUtil.e(values);
+    public void DLIP_READGroupQuery(String values) {
+        String[] datas = computeReadDatas(values);
+        LogUtil.e(values);
         //故障位
         if (datas.length < 10) {
-            return 0;
+            return;
         }
-        String malfunction = datas[4];
+        String messagetype = datas[3];
         String DATAH = datas[7];
         String DATAL = datas[8];
         String BinaryH = ELUtil.hex2binary(DATAH);
@@ -1130,101 +1046,90 @@ public class Test extends ToolBarActivity {
                 group1.add(result1);
             }
         }
+
+        String hex = datas[6];
+        Integer x = Integer.parseInt(hex, 16);
         for (int j = 0; j < group1.size(); j++) {
-            String hex = datas[6];
-            Integer x = Integer.parseInt(hex, 16);
             addrstr = x * 16 + group1.get(j);
             address.add(addrstr);
-            if ("00".equals(malfunction) && addrstr < 239 && addrstr > 0) {
-                intInfos.set(addrstr, 1);
-                mMyAdapter.notifyItemChanged(addrstr);
-                onaddressnum++;
-                onnum.setText(onaddressnum + "");
-                button1.setText("扫描");
+        }
+        for (int i = x * 16; i <  16 + x * 16; i++) {
+            intInfos.set(i, 0);
+            mMyAdapter.notifyItemChanged(i);
+            if (address.size() == 0) {
+                intInfos.set(i, 0);
+                mMyAdapter.notifyItemChanged(i);
+            }
+            for (int z = 0; z < address.size(); z++) {
+                if (i == address.get(z)) {
+                    intInfos.set(i, 1);
+                    mMyAdapter.notifyItemChanged(i);
+                    //在线数量有问题,第二次点扫描会出现多个地址在线
+                    onaddressnum++; //原因：存放地址的集合address忘记清空了
+                    onnum.setText(onaddressnum + "");
+//                    i++;
+                }
             }
         }
-        return color;
-
+        address.clear();
     }
-//
 
 
-
-
-    private Handler dlipHandler=new Handler(){
-        @Override
-        public void handleMessage(Message msg) {
-            super.handleMessage(msg);
-            if (false == (Boolean) button1.getTag())
-                return;
-            switch(msg.what){
-                case ADAPTER_FRESH:
-                    mMyAdapter.notifyDataSetChanged();
-                    mMyAdapter.notifyItemChanged(addrstr);
-                    break;
-                case DLIP_SCAN_START:
-                    initWrite();
-                    mMyAdapter.notifyItemChanged(addrstr);
-                    break;
-                case DLIP_SCAN_FINISH:
-                    button1.setText("扫描");
-                    break;
-                case DLIP_WRTIE_MSG:
-                    String command=msg.obj.toString();
-                    commonBleUtil.writeDevice(bleDevice, command);
-                    mMyAdapter.notifyItemChanged(addrstr);
-                    break;
-            }
-        }
-    };
     private Handler handler = new Handler() {
         @Override
         public void handleMessage(Message msg) {
             super.handleMessage(msg);
-            if (false == (Boolean) button1.getTag())
+            if (false == (Boolean) button1.getTag()) {
+                //点击扫描按钮之后才会执行下边的代码
                 return;
-//            if (lampnum == 201)
-//                return;
+            }
+            if (groupnum == 15) {
+                return;
+            }
             if (addrstr == 240) {
                 return;
             }
             switch (msg.what) {
+//
+                case dlipfinsh:
+                    handler.removeCallbacks(runnable1);
+                    break;
+                case dlip_over:
+                    Toast.makeText(Test.this, "扫描完成", Toast.LENGTH_LONG).show();
+                    button1.setText("扫描");
+                    break;
+
+                case repetscan:
+                    Writing("CLIP", ADDRESSTYPE);
+                    break;
                 case addressNoExist:
+
                     intInfos.set(addrstr, 0);
                     mMyAdapter.notifyItemChanged(addrstr);
                     addrstr++;
-                    Writing("CLIP", 0, 0);
+                    Writing("CLIP", ADDRESSTYPE);
                     break;
                 case addressExist:
                     intInfos.set(addrstr, 1);
                     mMyAdapter.notifyItemChanged(addrstr);
                     addrstr++;
                     onaddressnum++;
-                    Writing("CLIP", 0, 0);
+                    onnum.setText(onaddressnum + "");
+                    Writing("CLIP", ADDRESSTYPE);
                     break;
                 case addressRepeat:
                     intInfos.set(addrstr, 2);
                     mMyAdapter.notifyItemChanged(addrstr);
                     addrstr++;
                     repeataddressnum++;
-                    Writing("", 0, 0);
+                    Writing("", ADDRESSTYPE);
                     break;
-//                case ADAPTER_FRESH:
-//                    mMyAdapter.notifyDataSetChanged();
-//                    break;
-//                case DLIP_SCAN_START:
-//                    Writing("DLIP", 2000, 1);
-//                    break;
-//                case DLIP_SCAN_FINISH:
-//                    break;
                 case over:
                     Toast.makeText(Test.this, "扫描完成", Toast.LENGTH_LONG).show();
                     button1.setText("扫描");
                     break;
                 default:
             }
-            //显示在线数量
-            onnum.setText(onaddressnum + "");
             //显示重码数量
             renum.setText(repeataddressnum + "");
         }
